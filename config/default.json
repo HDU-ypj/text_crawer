@@ -1,0 +1,48 @@
+{
+  "name": "宁夏",
+  "base_url": "https://www.nx.gov.cn/zwxx_11337/nxyw/",
+  "url_onepage": "https://www.nx.gov.cn/zwxx_11337/nxyw/index.html",
+  "url_multi_page": "https://www.nx.gov.cn/zwxx_11337/nxyw/index_{}.html",
+  "url_multi_page_start": 0,
+  "url_multi_page_stop": 99999,
+  "url_list_config": {
+    "target_list_container": {
+      "name": "div",
+      "class": "list-con",
+      "id": ""
+    },
+    "target_list_item": {
+      "name": "li",
+      "title": {
+        "name": "a",
+        "attr": "text"
+      },
+      "link": {
+        "name": "a",
+        "attr": "href"
+      }
+    }
+  },
+  "article_config": {
+    "target_container": {
+      "name": "div",
+      "class": "",
+      "id": "ofdneed"
+    },
+    "target_text_item": {
+      "name": "p",
+      "attr": "text"
+    }
+  },
+  "delay_min": 800,
+  "delay_max": 1500,
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  },
+  "use_jsonl": true,
+  "jsonl_config": {
+    "file_prefix": "宁夏",
+    "max_entries": 5000,
+    "base_path": "output"
+  }
+}
