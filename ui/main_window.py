@@ -8,7 +8,14 @@ import json
 from datetime import datetime
 
 # 添加项目根目录到路径，以便导入其他模块
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if getattr(sys, 'frozen', False):
+    # 打包后的环境
+    application_path = os.path.dirname(sys.executable)
+else:
+    # 开发环境
+    application_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+sys.path.append(application_path)
 
 from config.manager import ConfigManager
 from ui.crawler_tab import CrawlerTab
@@ -18,6 +25,11 @@ class MainWindow:
         self.root = tk.Tk()
         self.root.title("文本爬虫UI框架")
         self.root.geometry("1000x700")
+        
+        # 设置工作目录
+        if getattr(sys, 'frozen', False):
+            # 打包后的环境，确保在exe所在目录工作
+            os.chdir(os.path.dirname(sys.executable))
         
         # 初始化配置管理器
         self.config_manager = ConfigManager()

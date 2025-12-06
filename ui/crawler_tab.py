@@ -106,6 +106,9 @@ class CrawlerTab:
         self.stop_button = ttk.Button(control_frame, text="停止爬取", command=self.stop_crawl, state=tk.DISABLED)
         self.stop_button.pack(side=tk.LEFT, padx=(0, 5))
         
+        self.test_button = ttk.Button(control_frame, text="测试配置", command=self.test_config)
+        self.test_button.pack(side=tk.LEFT, padx=(0, 5))
+        
         ttk.Button(control_frame, text="清空日志", command=self.clear_log).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(control_frame, text="打开输出目录", command=self.open_output_dir).pack(side=tk.LEFT, padx=(0, 5))
         
@@ -200,6 +203,155 @@ class CrawlerTab:
                 self.log_callback(f"已删除配置: {config_name}")
             else:
                 messagebox.showerror("错误", f"删除配置失败: {config_name}")
+    
+    def test_config(self):
+        """测试配置是否正确"""
+        config_name = self.config_var.get()
+        if not config_name:
+            messagebox.showwarning("警告", "请先选择一个配置")
+            return
+            
+        config_data = self.config_manager.load_config(config_name)
+        if not config_data:
+            messagebox.showerror("错误", f"无法加载配置: {config_name}")
+            return
+            
+        # 创建爬虫实例
+        self.current_crawler = WebCrawler(config_data, self.logger)
+        
+        # 更新UI状态
+        self.is_crawling = True
+        self.start_button.config(state=tk.DISABLED)
+        self.stop_button.config(state=tk.NORMAL)
+        self.test_button.config(state=tk.DISABLED)
+        self.status_var.set("正在测试配置...")
+        
+        # 在新线程中运行测试
+        self.crawl_thread = threading.Thread(target=self.run_test)
+        self.crawl_thread.daemon = True
+        self.crawl_thread.start()
+    
+    def run_test(self):
+        """运行配置测试"""
+        try:
+            if self.current_crawler and self.is_crawling:
+                test_results = self.current_crawler.test_config()
+                
+                # 在主线程中更新UI
+                self.frame.after(0, self.test_finished, test_results)
+        except Exception as e:
+            self.frame.after(0, self.test_error, str(e))
+    
+    def test_finished(self, test_results):
+        """测试完成回调"""
+        self.is_crawling = False
+        self.start_button.config(state=tk.NORMAL)
+        self.stop_button.config(state=tk.DISABLED)
+        self.test_button.config(state=tk.NORMAL)
+        
+        # 检查是否是因为停止而结束的
+        if self.current_crawler and self.current_crawler.is_stopped():
+            self.status_var.set("测试已停止")
+            self.log_callback("配置测试已停止")
+        elif test_results['success']:
+            self.status_var.set("测试成功")
+            self.log_callback("配置测试成功")
+            
+            # 显示测试结果
+            self.show_test_results(test_results)
+        else:
+            self.status_var.set("测试失败")
+            self.log_callback("配置测试失败")
+            
+            # 显示测试结果
+            self.show_test_results(test_results)
+    
+    def test_error(self, error_msg):
+        """测试错误回调"""
+        self.is_crawling = False
+        self.start_button.config(state=tk.NORMAL)
+        self.stop_button.config(state=tk.DISABLED)
+        self.test_button.config(state=tk.NORMAL)
+        self.status_var.set("测试出错")
+        self.log_callback(f"配置测试出错: {error_msg}")
+        messagebox.showerror("错误", f"配置测试出错: {error_msg}")
+    
+    def show_test_results(self, test_results):
+        """显示测试结果"""
+        # 创建测试结果窗口
+        result_window = tk.Toplevel(self.frame)
+        result_window.title("配置测试结果")
+        result_window.geometry("800x600")
+        result_window.resizable(True, True)
+        
+        # 创建笔记本控件
+        notebook = ttk.Notebook(result_window)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # 概要标签页
+        summary_frame = ttk.Frame(notebook)
+        notebook.add(summary_frame, text="概要")
+        
+        # 测试概要
+        summary_text = scrolledtext.ScrolledText(summary_frame, wrap=tk.WORD, state=tk.DISABLED)
+        summary_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # 构建概要内容
+        summary_content = f"测试状态: {'成功' if test_results['success'] else '失败'}\n\n"
+        summary_content += f"测试页数: {test_results['pages_tested']}\n"
+        summary_content += f"找到链接数: {test_results['links_found']}\n"
+        summary_content += f"测试文章数: {test_results['articles_tested']}\n"
+        summary_content += f"成功解析文章数: {test_results['articles_parsed']}\n\n"
+        
+        if test_results['errors']:
+            summary_content += "错误信息:\n"
+            for error in test_results['errors']:
+                summary_content += f"- {error}\n"
+        
+        summary_text.config(state=tk.NORMAL)
+        summary_text.insert(tk.END, summary_content)
+        summary_text.config(state=tk.DISABLED)
+        
+        # 样本链接标签页
+        if test_results['sample_links']:
+            links_frame = ttk.Frame(notebook)
+            notebook.add(links_frame, text="样本链接")
+            
+            links_text = scrolledtext.ScrolledText(links_frame, wrap=tk.WORD, state=tk.DISABLED)
+            links_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            links_content = ""
+            for i, link in enumerate(test_results['sample_links'], 1):
+                links_content += f"{i}. 页面 {link['page']}: {link['title']}\n"
+                links_content += f"   URL: {link['url']}\n\n"
+            
+            links_text.config(state=tk.NORMAL)
+            links_text.insert(tk.END, links_content)
+            links_text.config(state=tk.DISABLED)
+        
+        # 样本文章标签页
+        if test_results['sample_articles']:
+            articles_frame = ttk.Frame(notebook)
+            notebook.add(articles_frame, text="样本文章")
+            
+            articles_text = scrolledtext.ScrolledText(articles_frame, wrap=tk.WORD, state=tk.DISABLED)
+            articles_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            articles_content = ""
+            for i, article in enumerate(test_results['sample_articles'], 1):
+                articles_content += f"{i}. 标题: {article['title']}\n"
+                articles_content += f"   URL: {article['url']}\n"
+                articles_content += f"   时间: {article['time']}\n"
+                articles_content += f"   内容长度: {article['content_length']} 字符\n"
+                articles_content += f"   内容预览: {article['content_preview']}\n\n"
+            
+            articles_text.config(state=tk.NORMAL)
+            articles_text.insert(tk.END, articles_content)
+            articles_text.config(state=tk.DISABLED)
+        
+        # 关闭按钮
+        close_button = ttk.Button(result_window, text="关闭", command=result_window.destroy)
+        close_button.pack(pady=10)
     
     def start_crawl(self):
         """开始爬取"""

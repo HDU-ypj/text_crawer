@@ -44,22 +44,27 @@ class WebCrawler:
         
         # 初始化JSONL写入器
         self.jsonl_writer = None
+        self.jsonl_config = config.get('jsonl_config', {})
+        self.jsonl_file_prefix = self.jsonl_config.get('file_prefix', config.get('name', 'crawl_result'))
+        self.jsonl_max_entries = self.jsonl_config.get('max_entries', 5000)
+        self.jsonl_base_path = self.jsonl_config.get('base_path', 'output')
+        
         if self.enable_jsonl:
-            jsonl_config = config.get('jsonl_config', {})
-            jsonl_file_prefix = jsonl_config.get('file_prefix', config.get('name', 'crawl_result'))
-            max_entries = jsonl_config.get('max_entries', 5000)
-            jsonl_base_path = jsonl_config.get('base_path', 'output')
-            
-            self.jsonl_writer = JsonlWriter(
-                base_path=jsonl_base_path,
-                max_entries_per_file=max_entries,
-                file_prefix=jsonl_file_prefix
-            )
-            self.log(f"已初始化JSONL写入器，输出目录: {jsonl_base_path}")
+            self.log(f"已配置JSONL写入器，输出目录: {self.jsonl_base_path}")
         
         # 添加停止标志位
         self.should_stop = False
         
+    def _init_jsonl_writer(self):
+        """初始化JSONL写入器"""
+        if self.enable_jsonl and not self.jsonl_writer:
+            self.jsonl_writer = JsonlWriter(
+                base_path=self.jsonl_base_path,
+                max_entries_per_file=self.jsonl_max_entries,
+                file_prefix=self.jsonl_file_prefix
+            )
+            self.log(f"已初始化JSONL写入器，输出目录: {self.jsonl_base_path}")
+    
     def log(self, message):
         """记录日志"""
         if self.logger:
@@ -172,7 +177,7 @@ class WebCrawler:
                     else:
                         full_url = href
                 
-                if title_element and title_element.has_attr(title_attr):
+                if title_element:
                     if title_attr == 'text':
                         title = title_element.get_text(strip=True)
                     else:
@@ -192,6 +197,190 @@ class WebCrawler:
             self.log(f"解析链接列表失败: {str(e)}")
             return []
     
+    def extract_time_from_page(self, soup):
+        """
+        从页面中提取时间信息，不依赖外部配置
+        
+        Args:
+            soup (BeautifulSoup): 页面对象
+            
+        Returns:
+            str: 提取到的时间字符串，如果未找到则返回当前时间
+        """
+        try:
+            # 导入正则表达式模块
+            import re
+            
+            # 常见的时间格式正则表达式
+            time_patterns = [
+                # YYYY-MM-DD HH:MM:SS
+                r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})',
+                # YYYY-MM-DD HH:MM
+                r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})',
+                # YYYY-MM-DD
+                r'(\d{4}-\d{2}-\d{2})',
+                # YYYY/MM/DD HH:MM:SS
+                r'(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2})',
+                # YYYY/MM/DD HH:MM
+                r'(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2})',
+                # YYYY/MM/DD
+                r'(\d{4}/\d{2}/\d{2})',
+                # YYYY年MM月DD日 HH:MM:SS
+                r'(\d{4}年\d{1,2}月\d{1,2}日\s+\d{2}:\d{2}:\d{2})',
+                # YYYY年MM月DD日 HH:MM
+                r'(\d{4}年\d{1,2}月\d{1,2}日\s+\d{2}:\d{2})',
+                # YYYY年MM月DD日
+                r'(\d{4}年\d{1,2}月\d{1,2}日)',
+                # MM-DD HH:MM
+                r'(\d{2}-\d{2}\s+\d{2}:\d{2})',
+                # MM/DD HH:MM
+                r'(\d{2}/\d{2}\s+\d{2}:\d{2})',
+                # MM月DD日
+                r'(\d{1,2}月\d{1,2}日)',
+                # MM月DD日 HH:MM
+                r'(\d{1,2}月\d{1,2}日\s+\d{2}:\d{2})',
+                # ISO 8601 格式
+                r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})',
+                # 带毫秒的格式
+                r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3})'
+            ]
+            
+            # 常见的时间元素选择器
+            time_selectors = [
+                'time', '.time', '.date', '.publish-time', 
+                '.publish_date', '.article-time', '.post-date',
+                '[datetime]', '.entry-date', '.published',
+                '.news-time', '.article-date', '.post-time',
+                '.release-time', '.update-time', '.create-time',
+                '.meta-time', '.timestamp', 'span[class*="time"]',
+                'span[class*="date"]', 'div[class*="time"]',
+                'div[class*="date"]', 'p[class*="time"]',
+                'p[class*="date"]'
+            ]
+            
+            # 首先尝试从常见的时间元素中提取
+            for selector in time_selectors:
+                elements = soup.select(selector)
+                for element in elements:
+                    # 优先从datetime属性获取
+                    if element.has_attr('datetime'):
+                        time_text = element['datetime']
+                        # 尝试解析时间
+                        parsed_time = self._parse_time_text(time_text)
+                        if parsed_time:
+                            self.log(f"从datetime属性提取时间: {parsed_time}")
+                            return parsed_time
+                    
+                    # 从元素文本中提取
+                    time_text = element.get_text(strip=True)
+                    if time_text:
+                        # 使用正则表达式从文本中提取时间
+                        for pattern in time_patterns:
+                            match = re.search(pattern, time_text)
+                            if match:
+                                time_str = match.group(1)
+                                parsed_time = self._parse_time_text(time_str)
+                                if parsed_time:
+                                    self.log(f"从元素文本提取时间: {parsed_time}")
+                                    return parsed_time
+            
+            # 如果没有从特定元素中找到时间，尝试从整个页面文本中搜索
+            page_text = soup.get_text()
+            for pattern in time_patterns:
+                matches = re.findall(pattern, page_text)
+                if matches:
+                    # 取第一个匹配的时间
+                    time_str = matches[0]
+                    parsed_time = self._parse_time_text(time_str)
+                    if parsed_time:
+                        self.log(f"从页面文本提取时间: {parsed_time}")
+                        return parsed_time
+            
+            # 如果没有找到时间，返回当前时间
+            self.log("未找到时间元素，使用当前时间")
+            return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+        except Exception as e:
+            self.log(f"提取时间信息失败: {str(e)}")
+            return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    def _parse_time_text(self, time_text):
+        """
+        解析时间文本并标准化为统一格式
+        
+        Args:
+            time_text (str): 时间文本
+            
+        Returns:
+            str: 标准化后的时间字符串，解析失败返回None
+        """
+        try:
+            # 导入正则表达式模块
+            import re
+            
+            # 预处理中文格式的月份和日期
+            # 将"2023年5月15日"转换为"2023年05月15日"
+            time_text = re.sub(r'(\d{4})年(\d{1,2})月(\d{1,2})日', lambda m: f"{m.group(1)}年{m.group(2).zfill(2)}月{m.group(3).zfill(2)}日", time_text)
+            
+            # 常见的时间格式
+            time_formats = [
+                '%Y-%m-%d %H:%M:%S',
+                '%Y-%m-%d %H:%M',
+                '%Y-%m-%d',
+                '%Y/%m/%d %H:%M:%S',
+                '%Y/%m/%d %H:%M',
+                '%Y/%m/%d',
+                '%Y年%m月%d日 %H:%M:%S',
+                '%Y年%m月%d日 %H:%M',
+                '%Y年%m月%d日',
+                '%m-%d %H:%M',
+                '%m/%d %H:%M',
+                '%m月%d日',
+                '%m月%d日 %H:%M',
+                '%Y-%m-%dT%H:%M:%S',  # ISO 8601
+                '%Y-%m-%d %H:%M:%S.%f'  # 带毫秒
+            ]
+            
+            for fmt in time_formats:
+                try:
+                    parsed_time = datetime.strptime(time_text, fmt)
+                    # 如果解析成功但没有时间部分，添加当前时间
+                    if fmt in ['%Y-%m-%d', '%Y/%m/%d', '%Y年%m月%d日', '%m月%d日']:
+                        now = datetime.now()
+                        parsed_time = parsed_time.replace(hour=now.hour, minute=now.minute, second=now.second)
+                    return parsed_time.strftime('%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    continue
+            
+            # 如果标准格式无法解析，尝试使用正则表达式提取
+            # 尝试提取年月日
+            year_month_day_match = re.search(r'(\d{4})年(\d{1,2})月(\d{1,2})日', time_text)
+            if year_month_day_match:
+                year = int(year_month_day_match.group(1))
+                month = int(year_month_day_match.group(2))
+                day = int(year_month_day_match.group(3))
+                
+                # 尝试提取时分秒
+                hour_min_sec_match = re.search(r'(\d{1,2})[时:](\d{1,2})(?:[分:](\d{1,2}))?', time_text)
+                if hour_min_sec_match:
+                    hour = int(hour_min_sec_match.group(1))
+                    minute = int(hour_min_sec_match.group(2))
+                    second = int(hour_min_sec_match.group(3)) if hour_min_sec_match.group(3) else 0
+                else:
+                    now = datetime.now()
+                    hour, minute, second = now.hour, now.minute, now.second
+                
+                try:
+                    parsed_time = datetime(year, month, day, hour, minute, second)
+                    return parsed_time.strftime('%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    pass
+            
+            return None
+        except Exception as e:
+            self.log(f"解析时间文本失败: {str(e)}")
+            return None
+
     def parse_article(self, soup, url):
         """
         解析文章内容
@@ -233,9 +422,13 @@ class WebCrawler:
                 # 如果指定了其他属性，则提取该属性值
                 content = '\n'.join([element.get(text_attr, '') for element in content_elements if element.has_attr(text_attr)])
 
+            # 提取文章时间
+            article_time = self.extract_time_from_page(soup)
+
             article_data = {
                 'url': url,
-                'content': content
+                'content': content,
+                'time': article_time
             }
             return article_data
         except Exception as e:
@@ -253,7 +446,7 @@ class WebCrawler:
         保存爬取结果到JSONL文件
         
         Args:
-            article_data (dict): 包含标题、URL和内容的文章数据
+            article_data (dict): 包含标题、URL、内容和时间的文章数据
         """
         if not article_data:
             self.log("没有数据需要保存")
@@ -264,6 +457,7 @@ class WebCrawler:
             title = article_data.get('title', '无标题')
             content = article_data.get('content', '')
             url = article_data.get('url', '')
+            article_time = article_data.get('time', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             
             # 如果内容为空，不保存
             if not content.strip():
@@ -272,9 +466,13 @@ class WebCrawler:
                 
             # 如果启用了JSONL写入器，使用它保存数据
             if self.enable_jsonl:
-                # 写入到JSONL文件
-                file_path = self.jsonl_writer.write(title, content)
-                self.log(f"已保存文章到JSONL文件: {title}")
+                # 确保JSONL写入器已初始化
+                if not self.jsonl_writer:
+                    self._init_jsonl_writer()
+                
+                # 写入到JSONL文件，使用从页面中提取的时间
+                file_path = self.jsonl_writer.write(title, content, article_time)
+                self.log(f"已保存文章到JSONL文件: {title}, 时间: {article_time}")
                 
         except Exception as e:
             self.log(f"保存结果失败: {str(e)}")
@@ -284,6 +482,212 @@ class WebCrawler:
         if self.jsonl_writer:
             self.jsonl_writer.close()
             self.log("JSONL写入器已关闭")
+    
+    def test_config(self, max_pages=2, max_articles=3):
+        """测试配置是否正确，只爬取少量页面和文章
+        
+        Args:
+            max_pages (int): 最大测试页数，默认为2页
+            max_articles (int): 最大测试文章数，默认为3篇
+            
+        Returns:
+            dict: 测试结果，包含链接提取和文章解析的信息
+        """
+        self.log(f"开始测试配置，最多测试 {max_pages} 页和 {max_articles} 篇文章")
+        
+        # 保存原始JSONL启用状态，在测试模式下禁用JSONL文件创建
+        original_enable_jsonl = self.enable_jsonl
+        self.enable_jsonl = False
+        self.log("测试模式：已禁用JSONL文件创建")
+        
+        test_results = {
+            'success': False,
+            'pages_tested': 0,
+            'links_found': 0,
+            'articles_tested': 0,
+            'articles_parsed': 0,
+            'errors': [],
+            'sample_links': [],
+            'sample_articles': []
+        }
+        
+        try:
+            # 获取配置
+            config = {
+                'url_onepage': self.config.get('url_onepage', ''),
+                'url_multi_page': self.config.get('url_multi_page', ''),
+                'url_multi_page_start': self.config.get('url_multi_page_start', 1),
+                'url_multi_page_stop': self.config.get('url_multi_page_stop', 9999999),
+                'process_articles': self.config.get('process_articles', True)
+            }
+            
+            # 验证必要配置
+            if not config['url_onepage'] or not config['url_multi_page']:
+                error_msg = "缺少必要的URL配置"
+                self.log(error_msg)
+                test_results['errors'].append(error_msg)
+                return test_results
+            
+            # 限制测试页数
+            original_stop = config['url_multi_page_stop']
+            config['url_multi_page_stop'] = min(
+                config['url_multi_page_start'] + max_pages - 1,
+                original_stop
+            )
+            
+            self.log(f"测试模式：限制页数从 {config['url_multi_page_start']} 到 {config['url_multi_page_stop']}")
+            
+            # 测试链接收集
+            all_url_data = []
+            
+            for page_index in range(config['url_multi_page_start'], config['url_multi_page_stop'] + 1):
+                # 检查是否应该停止
+                if self.is_stopped():
+                    self.log("测试过程中收到停止请求")
+                    break
+                    
+                # 构建页面URL
+                if page_index == config['url_multi_page_start']:
+                    page_url = config['url_onepage']
+                else:
+                    page_url = config['url_multi_page'].format(page_index)
+                
+                self.log(f"正在测试第 {page_index} 页: {page_url}")
+                
+                # 获取页面内容
+                page_content = self.get_page(page_url)
+                if not page_content:
+                    error_msg = f"获取页面内容失败: {page_url}"
+                    self.log(error_msg)
+                    test_results['errors'].append(error_msg)
+                    continue
+                
+                # 解析链接列表
+                url_data = self.parse_url_lists(page_content)
+                if url_data:
+                    all_url_data.extend(url_data)
+                    self.log(f"第 {page_index} 页找到 {len(url_data)} 个链接")
+                    
+                    # 保存样本链接
+                    for i, item in enumerate(url_data[:3]):  # 每页最多保存3个样本
+                        test_results['sample_links'].append({
+                            'page': page_index,
+                            'title': item['title'],
+                            'url': item['url']
+                        })
+                else:
+                    error_msg = f"第 {page_index} 页没有找到任何链接"
+                    self.log(error_msg)
+                    test_results['errors'].append(error_msg)
+                
+                test_results['pages_tested'] += 1
+            
+            # 去重
+            unique_urls = []
+            seen_urls = set()
+            for item in all_url_data:
+                url = item['url']
+                if url not in seen_urls:
+                    seen_urls.add(url)
+                    unique_urls.append(item)
+            
+            test_results['links_found'] = len(unique_urls)
+            
+            if not unique_urls:
+                error_msg = "所有测试页面都没有找到任何链接"
+                self.log(error_msg)
+                test_results['errors'].append(error_msg)
+                return test_results
+            
+            # 测试文章解析
+            self.log(f"开始测试文章解析，最多测试 {min(max_articles, len(unique_urls))} 篇文章")
+            
+            for i, item in enumerate(unique_urls[:max_articles]):
+                # 检查是否应该停止
+                if self.is_stopped():
+                    self.log("测试过程中收到停止请求")
+                    break
+                    
+                url = item['url']
+                title = item['title']
+                
+                self.log(f"正在测试文章: {url}")
+                
+                try:
+                    # 获取页面内容
+                    page_content = self.get_page(url)
+                    if not page_content:
+                        error_msg = f"获取文章页面内容失败: {url}"
+                        self.log(error_msg)
+                        test_results['errors'].append(error_msg)
+                        continue
+                    
+                    # 解析文章内容
+                    article_data = self.parse_article(page_content, url)
+                    
+                    if article_data and article_data.get('content'):
+                        test_results['articles_parsed'] += 1
+                        article_time = article_data.get('time', '未知')
+                        
+                        # 打印解析出的时间信息
+                        self.log(f"解析出文章时间: {article_time}")
+                        
+                        # 保存样本文章
+                        test_results['sample_articles'].append({
+                            'title': title,
+                            'url': url,
+                            'content_length': len(article_data['content']),
+                            'content_preview': article_data['content'][:100] + "..." if len(article_data['content']) > 100 else article_data['content'],
+                            'time': article_time
+                        })
+                        
+                        self.log(f"成功解析文章: {title}, 时间: {article_time}")
+                    else:
+                        error_msg = f"无法解析文章内容: {url}"
+                        self.log(error_msg)
+                        test_results['errors'].append(error_msg)
+                    
+                    test_results['articles_tested'] += 1
+                    
+                    # 测试模式下减少延迟
+                    if i < max_articles - 1:  # 最后一篇文章不需要延迟
+                        # 临时设置较短的延迟时间
+                        original_delay_min = self.delay_min
+                        original_delay_max = self.delay_max
+                        self.delay_min = 0.5
+                        self.delay_max = 1.0
+                        self.random_delay()
+                        # 恢复原始延迟时间
+                        self.delay_min = original_delay_min
+                        self.delay_max = original_delay_max
+                        
+                except Exception as e:
+                    error_msg = f"测试文章 {url} 时出错: {str(e)}"
+                    self.log(error_msg)
+                    test_results['errors'].append(error_msg)
+                    continue
+            
+            # 判断测试是否成功
+            test_results['success'] = (
+                test_results['pages_tested'] > 0 and 
+                test_results['links_found'] > 0 and 
+                test_results['articles_parsed'] > 0
+            )
+            
+            self.log(f"配置测试完成: 测试了 {test_results['pages_tested']} 页，找到 {test_results['links_found']} 个链接，成功解析 {test_results['articles_parsed']}/{test_results['articles_tested']} 篇文章")
+            
+            return test_results
+            
+        except Exception as e:
+            error_msg = f"测试配置时发生异常: {str(e)}"
+            self.log(error_msg)
+            test_results['errors'].append(error_msg)
+            return test_results
+        finally:
+            # 恢复原始JSONL设置
+            self.enable_jsonl = original_enable_jsonl
+            self.log(f"测试完成：已恢复JSONL文件创建设置为 {original_enable_jsonl}")
+            # 测试模式下不关闭JSONL写入器，因为可能继续执行正式爬取
     
     def crawl(self):
         """执行爬取任务"""
@@ -297,6 +701,10 @@ class WebCrawler:
     def crawl_multi_pages(self):
         """爬取多页内容"""
         try:
+            # 初始化JSONL写入器（如果需要）
+            if self.enable_jsonl:
+                self._init_jsonl_writer()
+                
             # 获取配置
             config = {
                 'url_onepage': self.config.get('url_onepage', ''),
@@ -426,7 +834,7 @@ class WebCrawler:
             url = item['url']
             title = item['title']
             
-            self.log(f"正在处理链接: {url}")
+            self.log(f"正在处理链接: {url}, 标题: {title}")
             
             try:
                 # 获取页面内容
@@ -446,6 +854,8 @@ class WebCrawler:
                 
                 # 保存结果
                 self.save_results(article_data)
+                
+                self.log(f"已处理文章: {title}, 时间: {article_data.get('time', '未知')}")
                 
                 self.random_delay()
                     

@@ -36,10 +36,10 @@ class ConfigWindow:
         self.base_url_var = tk.StringVar()
         self.url_onepage_var = tk.StringVar()
         self.url_multi_page_var = tk.StringVar()
-        self.url_multi_page_start_var = tk.IntVar(value=2)  # 默认从第2页开始
+        self.url_multi_page_start_var = tk.IntVar(value=0)  # 默认从第2页开始
         self.url_multi_page_stop_var = tk.IntVar(value=9999999)  # 默认到9999999页
-        self.delay_min_var = tk.StringVar(value="1000")
-        self.delay_max_var = tk.StringVar(value="3000")
+        self.delay_min_var = tk.StringVar(value="800")
+        self.delay_max_var = tk.StringVar(value="1500")
         
         # URL列表配置变量
         self.list_container_name_var = tk.StringVar(value="div")
@@ -66,9 +66,7 @@ class ConfigWindow:
         self.jsonl_file_prefix_var = tk.StringVar()
         self.jsonl_max_entries_var = tk.StringVar(value="1000")
         self.jsonl_base_path_var = tk.StringVar()
-        
-        # 多页爬取变量已移除，不再需要
-        
+                
         # 如果是编辑模式，加载数据
         if self.is_edit_mode and config_data:
             self.load_config_data(config_data)
@@ -89,11 +87,11 @@ class ConfigWindow:
         # 加载URL配置
         self.url_onepage_var.set(config_data.get('url_onepage', ''))
         self.url_multi_page_var.set(config_data.get('url_multi_page', ''))
-        self.url_multi_page_start_var.set(config_data.get('url_multi_page_start', 2))
-        self.url_multi_page_stop_var.set(config_data.get('url_multi_page_stop', 9999999))
+        self.url_multi_page_start_var.set(config_data.get('url_multi_page_start', 0))
+        self.url_multi_page_stop_var.set(config_data.get('url_multi_page_stop', 99999))
         # output_dir已移除，不再加载
-        self.delay_min_var.set(str(config_data.get('delay_min', 1000)))
-        self.delay_max_var.set(str(config_data.get('delay_max', 3000)))
+        self.delay_min_var.set(str(config_data.get('delay_min', 800)))
+        self.delay_max_var.set(str(config_data.get('delay_max', 1500)))
         
         # URL列表配置
         url_list_config = config_data.get('url_list_config', {})
