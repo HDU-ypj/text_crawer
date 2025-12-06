@@ -1,5 +1,5 @@
 {
-  "name": "宁夏",
+  "name": "",
   "base_url": "https://www.nx.gov.cn/zwxx_11337/nxyw/",
   "url_onepage": "https://www.nx.gov.cn/zwxx_11337/nxyw/index.html",
   "url_multi_page": "https://www.nx.gov.cn/zwxx_11337/nxyw/index_{}.html",
@@ -41,7 +41,7 @@
   },
   "use_jsonl": true,
   "jsonl_config": {
-    "file_prefix": "宁夏",
+    "file_prefix": "",
     "max_entries": 5000,
     "base_path": "output"
   }

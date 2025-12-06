@@ -57,12 +57,24 @@ class WebCrawler:
             )
             self.log(f"已初始化JSONL写入器，输出目录: {jsonl_base_path}")
         
+        # 添加停止标志位
+        self.should_stop = False
+        
     def log(self, message):
         """记录日志"""
         if self.logger:
             self.logger.info(message)
         else:
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}")
+    
+    def stop(self):
+        """设置停止标志位，用于停止爬取任务"""
+        self.should_stop = True
+        self.log("收到停止请求，正在停止爬取任务...")
+    
+    def is_stopped(self):
+        """检查是否应该停止爬取"""
+        return self.should_stop
 
     def random_delay(self):
         """随机延迟"""
@@ -310,6 +322,10 @@ class WebCrawler:
             
             # 收集所有URL数据（包含标题和URL）
             all_url_data = self._collect_all_urls(config)
+            if self.is_stopped():
+                self.log("爬取任务已被用户停止")
+                return False
+                
             if not all_url_data:
                 self.log("所有页面都没有找到任何链接，爬取任务终止")
                 return False
@@ -317,6 +333,10 @@ class WebCrawler:
             # 爬取文章内容
             self._crawl_articles(all_url_data, config)
             
+            if self.is_stopped():
+                self.log("爬取任务已被用户停止")
+                return False
+                
             self.log(f"多页爬取任务完成，共处理 {len(all_url_data)} 个链接")
             return True
         finally:
@@ -331,6 +351,11 @@ class WebCrawler:
         page_stop = config['url_multi_page_stop']
         
         for page_index in range(page_start, page_stop + 1):
+            # 检查是否应该停止
+            if self.is_stopped():
+                self.log("在收集链接过程中收到停止请求")
+                break
+                
             # 构建页面URL
             if page_index == page_start:
                 page_url = config['url_onepage']
@@ -393,6 +418,11 @@ class WebCrawler:
         self.log(f"开始爬取文章内容，共 {len(url_data)} 个链接")
         
         for item in url_data:
+            # 检查是否应该停止
+            if self.is_stopped():
+                self.log("在爬取文章内容过程中收到停止请求")
+                break
+                
             url = item['url']
             title = item['title']
             
