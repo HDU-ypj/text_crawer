@@ -19,6 +19,8 @@ sys.path.append(application_path)
 
 from config.manager import ConfigManager
 from ui.crawler_tab import CrawlerTab
+from ui.request_test_window import RequestTestWindow
+from ui.config_manager_window import ConfigManagerWindow
 
 class MainWindow:
     def __init__(self):
@@ -59,6 +61,13 @@ class MainWindow:
         file_menu.add_separator()
         file_menu.add_command(label="退出", command=self.root.quit)
         
+        # 工具菜单
+        tools_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="工具", menu=tools_menu)
+        tools_menu.add_command(label="测试Request", command=self.open_request_test)
+        tools_menu.add_separator()
+        tools_menu.add_command(label="配置管理", command=self.open_config_manager)
+        
         # 创建主框架
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -79,6 +88,14 @@ class MainWindow:
         
         # 绑定右键菜单事件
         self.notebook.bind("<Button-3>", self.show_tab_context_menu)
+    
+    def open_request_test(self):
+        """打开Request测试窗口"""
+        RequestTestWindow(self.root)
+    
+    def open_config_manager(self):
+        """打开配置管理窗口"""
+        ConfigManagerWindow(self.root)
     
     def add_new_tab_from_menu(self):
         """从菜单添加新标签页"""

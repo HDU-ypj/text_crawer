@@ -10,13 +10,14 @@ from .jsonl_writer import JsonlWriter
 import random
 
 class WebCrawler:
-    def __init__(self, config, logger=None):
+    def __init__(self, config, logger=None, progress_callback=None):
         """
         初始化爬虫
         
         Args:
             config (dict): 爬虫配置
             logger: 日志记录器
+            progress_callback: 进度回调函数，接收(current, total, message)参数
         """
         self.config = config
         self.base_url = config.get('base_url', '')
@@ -32,8 +33,10 @@ class WebCrawler:
         # 设置日志
         self.logger = logger or logging.getLogger(__name__)
         
+        # 设置进度回调
+        self.progress_callback = progress_callback
+        
         # 创建输出目录
-
         if self.enable_jsonl:
             if not os.path.exists(self.output_dir):
                 os.makedirs(self.output_dir)
@@ -64,6 +67,15 @@ class WebCrawler:
                 file_prefix=self.jsonl_file_prefix
             )
             self.log(f"已初始化JSONL写入器，输出目录: {self.jsonl_base_path}")
+    
+    def update_progress(self, current, total, message=""):
+        """更新进度"""
+        if self.progress_callback and total > 0:
+            # 计算百分比
+            percentage = int((current / total) * 100)
+            # 调用进度回调
+            self.progress_callback(current, total, message)
+            self.log(f"进度: {current}/{total} ({percentage}%) - {message}")
     
     def log(self, message):
         """记录日志"""
@@ -825,7 +837,10 @@ class WebCrawler:
             
         self.log(f"开始爬取文章内容，共 {len(url_data)} 个链接")
         
-        for item in url_data:
+        # 通知UI开始爬取文章，并设置总数量
+        self.update_progress(0, len(url_data), "开始爬取文章内容")
+        
+        for i, item in enumerate(url_data):
             # 检查是否应该停止
             if self.is_stopped():
                 self.log("在爬取文章内容过程中收到停止请求")
@@ -833,6 +848,9 @@ class WebCrawler:
                 
             url = item['url']
             title = item['title']
+            
+            # 更新进度
+            self.update_progress(i, len(url_data), f"正在处理: {title[:30]}...")
             
             self.log(f"正在处理链接: {url}, 标题: {title}")
             
@@ -862,3 +880,7 @@ class WebCrawler:
             except Exception as e:
                 self.log(f"处理链接 {url} 时出错: {str(e)}")
                 continue
+        
+        # 更新最终进度
+        if not self.is_stopped():
+            self.update_progress(len(url_data), len(url_data), "文章爬取完成")

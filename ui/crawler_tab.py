@@ -115,10 +115,17 @@ class CrawlerTab:
         # 添加关闭标签页按钮
         ttk.Button(control_frame, text="关闭标签页", command=self.close_tab).pack(side=tk.RIGHT, padx=(5, 0))
         
-        # 创建状态栏
-        self.status_var = tk.StringVar(value="就绪")
-        status_bar = ttk.Label(control_frame, textvariable=self.status_var, relief=tk.SUNKEN)
-        status_bar.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(10, 0))
+        # 创建进度条区域
+        progress_frame = ttk.Frame(control_frame)
+        progress_frame.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(10, 0))
+        
+        # 进度条
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
+        self.progress_bar.pack(fill=tk.X, expand=True)
+        
+        # 初始化进度为0
+        self.progress_var.set(0)
         
         # 创建日志显示区域
         log_frame = ttk.LabelFrame(main_frame, text="日志", padding="10")
@@ -204,6 +211,14 @@ class CrawlerTab:
             else:
                 messagebox.showerror("错误", f"删除配置失败: {config_name}")
     
+    def update_progress(self, current, total, message=""):
+        """更新进度条"""
+        if total > 0:
+            # 计算百分比
+            percentage = int((current / total) * 100)
+            # 更新进度条
+            self.progress_var.set(percentage)
+    
     def test_config(self):
         """测试配置是否正确"""
         config_name = self.config_var.get()
@@ -216,15 +231,20 @@ class CrawlerTab:
             messagebox.showerror("错误", f"无法加载配置: {config_name}")
             return
             
-        # 创建爬虫实例
-        self.current_crawler = WebCrawler(config_data, self.logger)
+        # 创建爬虫实例，传入进度回调函数
+        def progress_callback(current, total, message):
+            # 在主线程中更新进度
+            self.frame.after(0, self.update_progress, current, total, message)
+            
+        self.current_crawler = WebCrawler(config_data, self.logger, progress_callback)
         
         # 更新UI状态
         self.is_crawling = True
         self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
         self.test_button.config(state=tk.DISABLED)
-        self.status_var.set("正在测试配置...")
+        # 开始测试配置，进度条初始化为0
+        self.progress_var.set(0)
         
         # 在新线程中运行测试
         self.crawl_thread = threading.Thread(target=self.run_test)
@@ -251,16 +271,16 @@ class CrawlerTab:
         
         # 检查是否是因为停止而结束的
         if self.current_crawler and self.current_crawler.is_stopped():
-            self.status_var.set("测试已停止")
+            self.progress_var.set(0)
             self.log_callback("配置测试已停止")
         elif test_results['success']:
-            self.status_var.set("测试成功")
+            self.progress_var.set(100)
             self.log_callback("配置测试成功")
             
             # 显示测试结果
             self.show_test_results(test_results)
         else:
-            self.status_var.set("测试失败")
+            self.progress_var.set(0)
             self.log_callback("配置测试失败")
             
             # 显示测试结果
@@ -272,7 +292,7 @@ class CrawlerTab:
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
         self.test_button.config(state=tk.NORMAL)
-        self.status_var.set("测试出错")
+        self.progress_var.set(0)
         self.log_callback(f"配置测试出错: {error_msg}")
         messagebox.showerror("错误", f"配置测试出错: {error_msg}")
     
@@ -365,14 +385,19 @@ class CrawlerTab:
             messagebox.showerror("错误", f"无法加载配置: {config_name}")
             return
             
-        # 创建爬虫实例
-        self.current_crawler = WebCrawler(config_data, self.logger)
+        # 创建爬虫实例，传入进度回调函数
+        def progress_callback(current, total, message):
+            # 在主线程中更新进度
+            self.frame.after(0, self.update_progress, current, total, message)
+            
+        self.current_crawler = WebCrawler(config_data, self.logger, progress_callback)
         
         # 更新UI状态
         self.is_crawling = True
-        self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
-        self.status_var.set("正在爬取...")
+        self.start_button.config(state=tk.DISABLED)
+        # 开始爬取，进度条初始化为0
+        self.progress_var.set(0)
         
         # 在新线程中运行爬虫
         self.crawl_thread = threading.Thread(target=self.run_crawler)
@@ -385,7 +410,6 @@ class CrawlerTab:
             return
             
         self.is_crawling = False
-        self.status_var.set("正在停止...")
         self.log_callback("正在停止爬取任务...")
         
         # 调用爬虫的停止方法
@@ -411,13 +435,13 @@ class CrawlerTab:
         
         # 检查是否是因为停止而结束的
         if self.current_crawler and self.current_crawler.is_stopped():
-            self.status_var.set("已停止")
+            self.progress_var.set(0)
             self.log_callback("爬取任务已停止")
         elif success:
-            self.status_var.set("爬取完成")
+            self.progress_var.set(100)
             self.log_callback("爬取任务已完成")
         else:
-            self.status_var.set("爬取失败")
+            self.progress_var.set(0)
             self.log_callback("爬取任务失败")
     
     def crawl_error(self, error_msg):
@@ -425,7 +449,7 @@ class CrawlerTab:
         self.is_crawling = False
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
-        self.status_var.set("爬取出错")
+        self.progress_var.set(0)
         self.log_callback(f"爬取出错: {error_msg}")
         messagebox.showerror("错误", f"爬取出错: {error_msg}")
     
